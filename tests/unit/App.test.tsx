@@ -25,6 +25,115 @@ describe('App com useWeather', () => {
 
   afterEach(cleanup);
 
+  it('alterna unidade durante loading e preserva cidade e cinco dias ao converter mínimas e máximas', async () => {
+    const user = userEvent.setup();
+    const extremeWeather: WeatherData = {
+      ...weather,
+      forecast: weather.forecast.map((day, index) => ({
+        ...day,
+        minTemperatureC: index === 0 ? -40 : day.minTemperatureC,
+        maxTemperatureC: index === 0 ? 100 : day.maxTemperatureC,
+      })),
+    };
+    const snapshot = structuredClone(extremeWeather);
+    let resolveWeather!: (data: WeatherData) => void;
+    vi.mocked(getWeather).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveWeather = resolve;
+      }),
+    );
+    render(<App />);
+    await user.type(screen.getByRole('searchbox', { name: 'Cidade' }), 'São Paulo');
+    await user.click(screen.getByRole('button', { name: 'Buscar' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('Buscando condições atuais...');
+    await user.click(screen.getByRole('button', { name: 'Fahrenheit' }));
+    await act(async () => {
+      resolveWeather(extremeWeather);
+    });
+
+    const current = screen.getByRole('region', { name: 'Clima atual' });
+    const forecast = screen.getByRole('region', { name: 'Previsão para cinco dias' });
+    const cityText = within(current).getByText('São Paulo', { exact: true }).textContent;
+    const labels = within(forecast)
+      .getAllByRole('heading', { level: 3 })
+      .map((heading) => heading.textContent);
+    const firstDay = within(forecast).getAllByRole('listitem')[0];
+    expect(current).toHaveTextContent('32 °F');
+    expect(within(firstDay).getByText('212 °F')).toBeVisible();
+    expect(within(firstDay).getByText('-40 °F')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Celsius' }));
+
+    expect(current).toHaveTextContent('0 °C');
+    expect(within(firstDay).getByText('100 °C')).toBeVisible();
+    expect(within(firstDay).getByText('-40 °C')).toBeVisible();
+    expect(within(current).getByText('São Paulo', { exact: true }).textContent).toBe(cityText);
+    expect(
+      within(forecast)
+        .getAllByRole('heading', { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(labels);
+    expect(within(forecast).getAllByRole('listitem')).toHaveLength(5);
+    expect(extremeWeather).toEqual(snapshot);
+    expect(searchCities).toHaveBeenCalledTimes(1);
+    expect(getWeather).toHaveBeenCalledTimes(1);
+  });
+
+  it('mostra campos opcionais ausentes como indisponíveis, sem fabricar temperaturas zero', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getWeather).mockResolvedValueOnce({
+      ...weather,
+      current: { temperatureC: 18 },
+      forecast: weather.forecast.map((day) => ({ date: day.date })),
+    });
+    render(<App />);
+    await user.type(screen.getByRole('searchbox', { name: 'Cidade' }), 'São Paulo');
+    await user.click(screen.getByRole('button', { name: 'Buscar' }));
+
+    const current = await screen.findByRole('region', { name: 'Clima atual' });
+    const forecast = screen.getByRole('region', { name: 'Previsão para cinco dias' });
+    expect(current).toHaveTextContent('18 °C');
+    expect(within(current).getAllByText('Indisponível')).toHaveLength(4);
+    expect(within(forecast).getAllByRole('definition')).toHaveLength(15);
+    for (const value of within(forecast).getAllByRole('definition')) {
+      expect(value).toHaveTextContent(/^—$/);
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Fahrenheit' }));
+
+    expect(current).toHaveTextContent('64 °F');
+    for (const value of within(forecast).getAllByRole('definition')) {
+      expect(value).toHaveTextContent(/^—$/);
+    }
+    expect(within(forecast).queryByText('32 °F')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { kind: 'network' },
+    { kind: 'http', status: 503, retryable: true },
+    { kind: 'invalid-response', reason: 'missing-current-temperature' },
+    { kind: 'invalid-response', reason: 'invalid-forecast' },
+  ] as const)('remove o clima anterior e mostra erro após falha $kind', async (error) => {
+    const user = userEvent.setup();
+    render(<App />);
+    const input = screen.getByRole('searchbox', { name: 'Cidade' });
+    await user.type(input, 'São Paulo');
+    await user.click(screen.getByRole('button', { name: 'Buscar' }));
+    expect(await screen.findByRole('region', { name: 'Clima atual' })).toBeVisible();
+    vi.mocked(getWeather).mockRejectedValueOnce(new WeatherServiceError(error));
+
+    await user.clear(input);
+    await user.type(input, 'Outra cidade');
+    await user.click(screen.getByRole('button', { name: 'Buscar' }));
+
+    expect(await screen.findByRole('alert')).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Clima atual' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('region', { name: 'Previsão para cinco dias' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('renderiza idle, loading e success e converte as temperaturas sem novas consultas', async () => {
     const user = userEvent.setup();
     let resolveWeather!: (data: WeatherData) => void;
@@ -87,7 +196,7 @@ describe('App com useWeather', () => {
     await user.type(input, 'Atlantis');
     await user.click(screen.getByRole('button', { name: 'Buscar' }));
 
-    expect(await screen.findByRole('heading', { name: 'Cidade não encontrada' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Nenhuma cidade encontrada' })).toBeVisible();
     expect(screen.queryByRole('region', { name: 'Clima atual' })).not.toBeInTheDocument();
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
     expect(getWeather).toHaveBeenCalledTimes(1);

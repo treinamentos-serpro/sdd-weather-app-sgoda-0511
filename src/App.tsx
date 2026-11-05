@@ -28,7 +28,7 @@ export default function App() {
         return (
           <div role="status" aria-live="polite" aria-atomic="true">
             <EmptyState
-              title="Cidade não encontrada"
+              title="Nenhuma cidade encontrada"
               hint="Confira a grafia do nome e tente novamente."
             />
           </div>

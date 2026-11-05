@@ -59,7 +59,12 @@ export async function fetchWithTimeout(url: string): Promise<Response> {
   try {
     return await fetch(url, { signal: controller.signal });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'name' in error &&
+      error.name === 'AbortError'
+    ) {
       throw new WeatherServiceError({ kind: 'timeout', timeoutMs });
     }
 
@@ -152,7 +157,9 @@ export async function getWeather(city: City): Promise<WeatherData> {
     daily.time.length !== 5 ||
     daily.time.some(
       (date, index, dates) =>
-        typeof date !== 'string' || !date || (index > 0 && date <= dates[index - 1]),
+        typeof date !== 'string' ||
+        !Number.isFinite(Date.parse(date)) ||
+        (index > 0 && Date.parse(date) - Date.parse(dates[index - 1]) !== 86_400_000),
     ) ||
     Object.values(daily).some((values) => !Array.isArray(values) || values.length !== 5) ||
     typeof data?.timezone !== 'string' ||
@@ -169,7 +176,7 @@ export async function getWeather(city: City): Promise<WeatherData> {
       apparentTemperatureC: current.apparent_temperature ?? undefined,
       relativeHumidityPercent: current.relative_humidity_2m ?? undefined,
       isDay: current.is_day == null ? undefined : current.is_day === 1,
-      precipitationMm: current.precipitation ?? undefined,
+      precipitationMm: current.precipitation === null ? 0 : (current.precipitation ?? undefined),
       pressureHpa: current.surface_pressure ?? undefined,
       weatherCode: current.weather_code ?? undefined,
       windSpeedKmh: current.wind_speed_10m ?? undefined,
@@ -180,7 +187,10 @@ export async function getWeather(city: City): Promise<WeatherData> {
       minTemperatureC: daily.temperature_2m_min?.[index] ?? undefined,
       maxTemperatureC: daily.temperature_2m_max?.[index] ?? undefined,
       precipitationProbabilityPercent: daily.precipitation_probability_max?.[index] ?? undefined,
-      precipitationSumMm: daily.precipitation_sum?.[index] ?? undefined,
+      precipitationSumMm:
+        daily.precipitation_sum?.[index] === null
+          ? 0
+          : (daily.precipitation_sum?.[index] ?? undefined),
       weatherCode: daily.weather_code?.[index] ?? undefined,
       maxWindSpeedKmh: daily.wind_speed_10m_max?.[index] ?? undefined,
     })),

@@ -4,9 +4,14 @@ export function toFahrenheit(temperatureC: number): number {
   return (temperatureC * 9) / 5 + 32;
 }
 
-export function formatTemperature(temperatureC: number, unit: Unit): string {
-  const temperature = unit === 'fahrenheit' ? toFahrenheit(temperatureC) : temperatureC;
-  const symbol = unit === 'fahrenheit' ? 'F' : 'C';
+export function convertTemperature(temperatureC: number, unit: Unit): number {
+  return unit === 'fahrenheit' ? toFahrenheit(temperatureC) : temperatureC;
+}
 
-  return `${Math.round(temperature)} °${symbol}`;
+export function unitLabel(unit: Unit): string {
+  return unit === 'fahrenheit' ? '°F' : '°C';
+}
+
+export function formatTemperature(temperatureC: number, unit: Unit): string {
+  return `${Math.round(convertTemperature(temperatureC, unit))} ${unitLabel(unit)}`;
 }
