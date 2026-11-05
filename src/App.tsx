@@ -6,59 +6,15 @@ import EmptyState from './components/states/EmptyState';
 import ErrorState from './components/states/ErrorState';
 import LoadingState from './components/states/LoadingState';
 import UnitToggle from './components/UnitToggle';
-import { mockWeatherData } from './mocks/weather';
-import type { AsyncState, Unit, WeatherData } from './types/weather';
-
-function normalizeCityName(city: string): string {
-  return city
-    .trim()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase('pt-BR');
-}
+import useWeather from './hooks/useWeather';
+import type { Unit } from './types/weather';
 
 export default function App() {
   const [unit, setUnit] = useState<Unit>('celsius');
-  const [weatherState, setWeatherState] = useState<AsyncState<WeatherData>>({ status: 'idle' });
-  const [lastQuery, setLastQuery] = useState('');
-
-  async function searchMockWeather(city: string): Promise<void> {
-    const query = city.trim();
-    setLastQuery(query);
-    setWeatherState({ status: 'loading' });
-
-    try {
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 300);
-      });
-
-      if (normalizeCityName(query) !== normalizeCityName(mockWeatherData.city.name)) {
-        setWeatherState({ status: 'empty' });
-        return;
-      }
-
-      if (mockWeatherData.forecast.length !== 5) {
-        setWeatherState({
-          status: 'error',
-          error: { kind: 'invalid-response', reason: 'invalid-forecast' },
-        });
-        return;
-      }
-
-      setWeatherState({ status: 'success', data: mockWeatherData });
-    } catch {
-      setWeatherState({ status: 'error', error: { kind: 'network' } });
-    }
-  }
-
-  function handleRetry() {
-    if (lastQuery) {
-      void searchMockWeather(lastQuery);
-    }
-  }
+  const { status, data, error, search, retry } = useWeather();
 
   function renderContent() {
-    switch (weatherState.status) {
+    switch (status) {
       case 'idle':
         return (
           <EmptyState
@@ -80,22 +36,21 @@ export default function App() {
       case 'error':
         return (
           <ErrorState
-            message="Não foi possível carregar os dados meteorológicos."
-            onRetry={handleRetry}
+            message={error ?? 'Não foi possível carregar os dados meteorológicos.'}
+            onRetry={() => void retry()}
           />
         );
       case 'success':
+        if (!data) {
+          return null;
+        }
         return (
           <div className="space-y-8">
             <p role="status" className="sr-only">
-              Previsão carregada para {weatherState.data.city.name}.
+              Previsão carregada para {data.city.name}.
             </p>
-            <CurrentWeather
-              city={weatherState.data.city}
-              current={weatherState.data.current}
-              unit={unit}
-            />
-            <ForecastList forecast={weatherState.data.forecast} unit={unit} />
+            <CurrentWeather city={data.city} current={data.current} unit={unit} />
+            <ForecastList forecast={data.forecast} unit={unit} />
           </div>
         );
     }
@@ -119,10 +74,7 @@ export default function App() {
           </a>
           <div className="flex w-full flex-col gap-3 sm:max-w-2xl sm:flex-row sm:items-center">
             <div className="min-w-0 flex-1">
-              <SearchBar
-                onSearch={(city) => void searchMockWeather(city)}
-                disabled={weatherState.status === 'loading'}
-              />
+              <SearchBar onSearch={(city) => void search(city)} disabled={status === 'loading'} />
             </div>
             <UnitToggle unit={unit} onChange={setUnit} />
           </div>
@@ -132,7 +84,7 @@ export default function App() {
       <main
         id="main-content"
         tabIndex={-1}
-        aria-busy={weatherState.status === 'loading'}
+        aria-busy={status === 'loading'}
         className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:py-10"
       >
         <h1 className="sr-only">Previsão do tempo</h1>
